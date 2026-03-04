@@ -72,6 +72,62 @@ export DOUYIN_CLIENT_SECRET="你的_CLIENT_SECRET"
 export DOUYIN_REDIRECT_URI="https://your.domain/callback"
 ```
 
+<details>
+<summary><b>📖 展开：如何获取 CLIENT_KEY / CLIENT_SECRET / REDIRECT_URI（详细教程）</b></summary>
+
+### A. 创建抖音开放平台应用
+
+1. 打开抖音开放平台（中国大陆）：`https://developer.open-douyin.com/`
+2. 登录开发者账号后，进入控制台，创建应用（网站应用/移动应用按你的场景选择）。
+3. 完成应用基础信息填写（应用名、图标、简介、主体信息等），提交审核。
+
+> 提示：控制台菜单名称可能会随版本调整，但关键词一般是“应用管理 / 应用信息 / 开发设置”。
+
+### B. 获取 `DOUYIN_CLIENT_KEY` 和 `DOUYIN_CLIENT_SECRET`
+
+1. 进入你创建的应用详情页。
+2. 在“应用信息”或“凭证/密钥”区域找到：
+   - `Client Key`（对应 `DOUYIN_CLIENT_KEY`）
+   - `Client Secret`（对应 `DOUYIN_CLIENT_SECRET`）
+3. 将两者复制保存到你的本地环境变量中。
+
+### C. 配置并获取 `DOUYIN_REDIRECT_URI`
+
+1. 先准备一个可访问的回调地址，例如：`https://your.domain/callback`
+2. 在抖音开放平台控制台中，把这个地址配置到应用的“回调地址/Redirect URI”。
+3. 将同一个地址写入本地：
+   - `DOUYIN_REDIRECT_URI`
+
+`Redirect URI` 常见要求：
+- 必须与你控制台里配置的地址严格一致（协议、域名、路径都要一致）
+- 通常建议使用 HTTPS 正式域名
+- 不要随意在回调地址后追加未登记参数
+
+### D. 申请发布相关权限（发布接口必需）
+
+如果你要走官方直发（`publish` 的 official 模式），还需要在控制台申请对应能力/Scope（如视频发布相关权限）。未获批时，工具会自动进入 fallback outbox 模式。
+
+### E. 本地配置示例（bash）
+
+```bash
+export DOUYIN_CLIENT_KEY="填写你的Client Key"
+export DOUYIN_CLIENT_SECRET="填写你的Client Secret"
+export DOUYIN_REDIRECT_URI="https://your.domain/callback"
+```
+
+快速自检：
+
+```bash
+node scripts/douyin.js doctor
+```
+
+当返回结果中这三项为 `true`，表示变量已就绪：
+- `DOUYIN_CLIENT_KEY`
+- `DOUYIN_CLIENT_SECRET`
+- `DOUYIN_REDIRECT_URI`
+
+</details>
+
 ### 3. 环境自检 (Doctor)
 ```bash
 node scripts/douyin.js doctor

@@ -27,6 +27,10 @@ Set these environment variables before `auth` or `publish`:
 Optional overrides:
 - `DOUYIN_SCOPE`
 - `DOUYIN_TOKEN_ENC_KEY`
+- `DOUYIN_ASR_MODE` (`api` / `whisper-gpu` / `whisper-cpu`)
+- `DOUYIN_ASR_API_URL`
+- `DOUYIN_ASR_API_MODEL`
+- `DOUYIN_ASR_API_KEY`
 - `DOUYIN_WHISPER_BIN`
 - `DOUYIN_WHISPER_MODEL_PATH`
 - `DOUYIN_FFMPEG_BIN`

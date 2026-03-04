@@ -34,6 +34,7 @@
 
 - 🔐 **OAuth 快捷登录**：支持手动粘贴授权码，并将 Token **加密安全存储**在本地。
 - 🎙️ **本地语音转文字 (ASR)**：内置 `whisper.cpp` (`whisper-cli`)，使用本地模型提取字幕。
+- 🧩 **ASR 三模式**：支持 `第三方服务 API`（默认）、`whisper+gpu`、`whisper+cpu`。
 - ⚡ **智能缓存**：基于视频的 SHA-256 计算哈希，避免重复转录。
 - 🚀 **官方 API 直发**：在权限允许的情况下，一键调用官方接口完成发布。
 - 📦 **降级发件箱 (Fallback Outbox)**：遇到无权限等阻碍时，自动打包**“视频 + 文案 + 字幕 + 元数据”**到发件箱，方便手动无缝接管。
@@ -157,11 +158,17 @@ node scripts/douyin.js config
 node scripts/douyin.js config set defaultPrivateStatus 0
 node scripts/douyin.js config set autoConfirm true
 node scripts/douyin.js config set whisperModelPath "/path/to/ggml-small.bin"
+node scripts/douyin.js config set asrMode whisper-gpu
 ```
+
+ASR 模式说明：
+- `api`：第三方服务 API（默认）
+- `whisper-gpu`：本地 `whisper-cli` GPU 转写
+- `whisper-cpu`：本地 `whisper-cli` CPU 转写（`--no-gpu`）
 
 ### 2. 环境变量覆盖 (推荐 CI/CD)
 常用环境变量：
-`DOUYIN_CLIENT_KEY`, `DOUYIN_CLIENT_SECRET`, `DOUYIN_REDIRECT_URI`, `DOUYIN_TOKEN_ENC_KEY`, `DOUYIN_WHISPER_BIN`, `DOUYIN_OUTBOX_DIR`...
+`DOUYIN_CLIENT_KEY`, `DOUYIN_CLIENT_SECRET`, `DOUYIN_REDIRECT_URI`, `DOUYIN_TOKEN_ENC_KEY`, `DOUYIN_WHISPER_BIN`, `DOUYIN_OUTBOX_DIR`, `DOUYIN_ASR_MODE`, `DOUYIN_ASR_API_URL`, `DOUYIN_ASR_API_MODEL`, `DOUYIN_ASR_API_KEY`...
 > 💡 **CI 小贴士：** 可以在 CI 环境中设置一个稳定的加密密钥：
 > `export DOUYIN_TOKEN_ENC_KEY="$(openssl rand -hex 32)"`
 

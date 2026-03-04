@@ -13,6 +13,9 @@ function applyEnvOverrides(config) {
   const merged = { ...config };
 
   if (process.env.DOUYIN_SCOPE) merged.scope = process.env.DOUYIN_SCOPE;
+  if (process.env.DOUYIN_ASR_MODE) merged.asrMode = process.env.DOUYIN_ASR_MODE;
+  if (process.env.DOUYIN_ASR_API_URL) merged.asrApiUrl = process.env.DOUYIN_ASR_API_URL;
+  if (process.env.DOUYIN_ASR_API_MODEL) merged.asrApiModel = process.env.DOUYIN_ASR_API_MODEL;
   if (process.env.DOUYIN_FFMPEG_BIN) merged.ffmpegBin = process.env.DOUYIN_FFMPEG_BIN;
   if (process.env.DOUYIN_FFPROBE_BIN) merged.ffprobeBin = process.env.DOUYIN_FFPROBE_BIN;
   if (process.env.DOUYIN_WHISPER_BIN) merged.whisperBin = process.env.DOUYIN_WHISPER_BIN;
@@ -20,6 +23,9 @@ function applyEnvOverrides(config) {
   if (process.env.DOUYIN_WHISPER_LANG) merged.whisperLang = process.env.DOUYIN_WHISPER_LANG;
   if (process.env.DOUYIN_OUTBOX_DIR) merged.outboxDir = process.env.DOUYIN_OUTBOX_DIR;
   if (process.env.DOUYIN_TRANSCRIPT_CACHE_DIR) merged.transcriptCacheDir = process.env.DOUYIN_TRANSCRIPT_CACHE_DIR;
+  if (process.env.DOUYIN_ASR_API_TIMEOUT_MS !== undefined) {
+    merged.asrApiTimeoutMs = parseInteger(process.env.DOUYIN_ASR_API_TIMEOUT_MS, merged.asrApiTimeoutMs);
+  }
 
   if (process.env.DOUYIN_DEFAULT_PRIVATE_STATUS !== undefined) {
     merged.defaultPrivateStatus = parseInteger(process.env.DOUYIN_DEFAULT_PRIVATE_STATUS, merged.defaultPrivateStatus);
@@ -52,9 +58,26 @@ function validateConfigValue(key, rawValue) {
       }
       return value;
     }
+    case "asrApiTimeoutMs": {
+      const value = parseInteger(rawValue, null);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error("asrApiTimeoutMs must be a positive integer.");
+      }
+      return value;
+    }
+    case "asrMode": {
+      const value = String(rawValue || "").trim().toLowerCase();
+      const allowed = ["api", "whisper-gpu", "whisper-cpu"];
+      if (!allowed.includes(value)) {
+        throw new Error(`asrMode must be one of: ${allowed.join(", ")}`);
+      }
+      return value;
+    }
     case "autoConfirm":
       return parseBoolean(rawValue);
     case "scope":
+    case "asrApiUrl":
+    case "asrApiModel":
     case "ffmpegBin":
     case "ffprobeBin":
     case "whisperBin":

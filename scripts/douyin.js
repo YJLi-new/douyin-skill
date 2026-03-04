@@ -21,7 +21,7 @@ const {
   refreshAccessToken,
   uploadVideoSmall,
 } = require("./lib/douyin-api");
-const { computeSha256, getVideoMetadata, transcribeVideo, validateDurationOrThrow } = require("./lib/media");
+const { computeSha256, getTranscriptCachePath, getVideoMetadata, transcribeVideo, validateDurationOrThrow } = require("./lib/media");
 
 function printHelp() {
   const helpText = [
@@ -39,6 +39,7 @@ function printHelp() {
     "Environment:",
     "  DOUYIN_CLIENT_KEY, DOUYIN_CLIENT_SECRET, DOUYIN_REDIRECT_URI",
     "  DOUYIN_TOKEN_ENC_KEY (optional)",
+    "  DOUYIN_ASR_MODE, DOUYIN_ASR_API_URL, DOUYIN_ASR_API_MODEL, DOUYIN_ASR_API_KEY (optional)",
   ];
   process.stdout.write(`${helpText.join("\n")}\n`);
 }
@@ -137,8 +138,9 @@ async function maybeRefreshToken(tokenData) {
 }
 
 async function loadCachedTranscript(config, videoSha256) {
-  const cachePath = path.join(config.transcriptCacheDir, `${videoSha256}.json`);
-  const cached = await readJson(cachePath, null);
+  const cachePath = getTranscriptCachePath(videoSha256, config);
+  const legacyPath = path.join(config.transcriptCacheDir, `${videoSha256}.json`);
+  const cached = (await readJson(cachePath, null)) || (await readJson(legacyPath, null));
   if (!cached) {
     return {
       text: "",
@@ -184,6 +186,8 @@ async function createFallbackOutbox({
 
 async function cmdDoctor() {
   const config = await loadConfig();
+  const asrMode = String(config.asrMode || "api").trim().toLowerCase();
+  const asrModeOk = ["api", "whisper-gpu", "whisper-cpu"].includes(asrMode);
 
   const checks = {
     ffmpeg: {
@@ -194,24 +198,41 @@ async function cmdDoctor() {
       command: config.ffprobeBin,
       ok: commandExists(config.ffprobeBin),
     },
-    whisperCli: {
-      command: config.whisperBin,
-      ok: commandExists(config.whisperBin),
-    },
     xdgOpen: {
       command: "xdg-open",
       ok: commandExists("xdg-open"),
     },
-    whisperModel: {
-      path: config.whisperModelPath,
-      ok: await fileExists(config.whisperModelPath),
+    asrMode: {
+      value: asrMode,
+      ok: asrModeOk,
     },
   };
+
+  if (asrMode === "whisper-gpu" || asrMode === "whisper-cpu") {
+    checks.whisperCli = {
+      command: config.whisperBin,
+      ok: commandExists(config.whisperBin),
+    };
+    checks.whisperModel = {
+      path: config.whisperModelPath,
+      ok: await fileExists(config.whisperModelPath),
+    };
+  } else if (asrMode === "api") {
+    checks.asrApiUrl = {
+      value: config.asrApiUrl,
+      ok: Boolean(String(config.asrApiUrl || "").trim()),
+    };
+    checks.asrApiKey = {
+      env: "DOUYIN_ASR_API_KEY",
+      ok: Boolean(String(process.env.DOUYIN_ASR_API_KEY || "").trim()),
+    };
+  }
 
   const env = {
     DOUYIN_CLIENT_KEY: Boolean(process.env.DOUYIN_CLIENT_KEY),
     DOUYIN_CLIENT_SECRET: Boolean(process.env.DOUYIN_CLIENT_SECRET),
     DOUYIN_REDIRECT_URI: Boolean(process.env.DOUYIN_REDIRECT_URI),
+    DOUYIN_ASR_API_KEY: Boolean(process.env.DOUYIN_ASR_API_KEY),
   };
 
   const installHints = [
@@ -219,6 +240,8 @@ async function cmdDoctor() {
     "git clone https://github.com/ggerganov/whisper.cpp.git && cd whisper.cpp && cmake -B build && cmake --build build -j",
     "ln -sf $(pwd)/build/bin/whisper-cli ~/.local/bin/whisper-cli",
     "mkdir -p ~/.cache/whisper.cpp && curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin -o ~/.cache/whisper.cpp/ggml-small.bin",
+    "export DOUYIN_ASR_MODE=api && export DOUYIN_ASR_API_KEY=*** && export DOUYIN_ASR_API_URL=https://api.openai.com/v1/audio/transcriptions",
+    "or set local whisper mode: node scripts/douyin.js config set asrMode whisper-gpu",
   ];
 
   const missing = Object.entries(checks)

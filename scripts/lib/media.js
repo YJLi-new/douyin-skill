@@ -137,7 +137,77 @@ function normalizeWhisperJson(payload) {
   return { text, segments };
 }
 
-async function runWhisper(audioPath, config) {
+function getAsrMode(config) {
+  return String(config?.asrMode || "api").trim().toLowerCase();
+}
+
+function buildAsrCacheVariant(config) {
+  const mode = getAsrMode(config);
+  if (mode === "api") {
+    const material = [
+      mode,
+      config?.asrApiUrl || "",
+      config?.asrApiModel || "",
+      config?.whisperLang || "",
+    ].join("|");
+    const digest = crypto.createHash("sha1").update(material).digest("hex").slice(0, 10);
+    return `${mode}-${digest}`;
+  }
+  return mode;
+}
+
+function getTranscriptCachePath(videoSha256, config) {
+  const variant = buildAsrCacheVariant(config);
+  return path.join(config.transcriptCacheDir, `${videoSha256}.${variant}.json`);
+}
+
+function getLegacyTranscriptCachePath(videoSha256, config) {
+  return path.join(config.transcriptCacheDir, `${videoSha256}.json`);
+}
+
+function normalizeAsrApiResponse(payload) {
+  let body = payload;
+  if (body && typeof body === "object" && body.data && typeof body.data === "object") {
+    body = body.data;
+  }
+
+  if (typeof body === "string") {
+    return { text: body.trim(), segments: [] };
+  }
+
+  if (!body || typeof body !== "object") {
+    return { text: "", segments: [] };
+  }
+
+  const whisperLike = normalizeWhisperJson(body);
+  if (whisperLike.text) {
+    return whisperLike;
+  }
+
+  let text = "";
+  if (typeof body.text === "string") text = body.text.trim();
+  else if (typeof body.result === "string") text = body.result.trim();
+  else if (typeof body.transcript === "string") text = body.transcript.trim();
+
+  const segments = [];
+  if (Array.isArray(body.segments)) {
+    for (const item of body.segments) {
+      const segmentText = String(item?.text || "").trim();
+      if (!segmentText) continue;
+      const startSec = Number(item.start ?? item.startSec ?? item.t0 ?? 0);
+      const endSec = Number(item.end ?? item.endSec ?? item.t1 ?? startSec);
+      segments.push({
+        startSec: Number.isFinite(startSec) ? startSec : null,
+        endSec: Number.isFinite(endSec) ? endSec : null,
+        text: segmentText,
+      });
+    }
+  }
+
+  return { text, segments };
+}
+
+async function runWhisper(audioPath, config, useGpu) {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), "douyin-whisper-"));
   const outputPrefix = path.join(tempDir, "transcript");
   const args = [
@@ -149,6 +219,10 @@ async function runWhisper(audioPath, config) {
 
   if (config.whisperLang) {
     args.push("-l", config.whisperLang);
+  }
+
+  if (!useGpu) {
+    args.push("-ng");
   }
 
   await runCommand(config.whisperBin, args);
@@ -168,11 +242,99 @@ async function runWhisper(audioPath, config) {
   return normalizeWhisperJson(payload);
 }
 
+async function runThirdPartyAsrApi(audioPath, config) {
+  const apiUrl = String(config.asrApiUrl || "").trim();
+  if (!apiUrl) {
+    const error = new Error("ASR API mode selected but asrApiUrl is empty.");
+    error.code = "MISSING_ASR_API_URL";
+    throw error;
+  }
+
+  const apiKey = String(process.env.DOUYIN_ASR_API_KEY || "").trim();
+  if (!apiKey) {
+    const error = new Error("ASR API mode selected but DOUYIN_ASR_API_KEY is missing.");
+    error.code = "MISSING_ASR_API_KEY";
+    throw error;
+  }
+
+  const fileBuffer = await fsp.readFile(audioPath);
+  const fileName = path.basename(audioPath);
+  const form = new FormData();
+  form.append("file", new File([fileBuffer], fileName, { type: "audio/wav" }));
+
+  const model = String(config.asrApiModel || "").trim();
+  if (model) {
+    form.append("model", model);
+  }
+
+  if (config.whisperLang) {
+    form.append("language", config.whisperLang);
+  }
+
+  const timeoutMs = Number(config.asrApiTimeoutMs || 120000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const wrapped = new Error(`ASR API request failed: ${error.message}`);
+    wrapped.code = error.name === "AbortError" ? "ASR_API_TIMEOUT" : "ASR_API_REQUEST_FAILED";
+    wrapped.details = {
+      apiUrl,
+      timeoutMs,
+    };
+    throw wrapped;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const bodyText = await response.text();
+  let payload;
+  try {
+    payload = bodyText ? JSON.parse(bodyText) : {};
+  } catch (_) {
+    payload = bodyText;
+  }
+
+  if (!response.ok) {
+    const wrapped = new Error(`ASR API HTTP ${response.status}`);
+    wrapped.code = "ASR_API_HTTP_ERROR";
+    wrapped.details = {
+      status: response.status,
+      body: typeof payload === "string" ? payload.slice(0, 500) : payload,
+    };
+    throw wrapped;
+  }
+
+  const normalized = normalizeAsrApiResponse(payload);
+  if (!normalized.text) {
+    const wrapped = new Error("ASR API succeeded but returned empty transcript.");
+    wrapped.code = "ASR_API_EMPTY_TEXT";
+    wrapped.details = {
+      body: payload,
+    };
+    throw wrapped;
+  }
+
+  return normalized;
+}
+
 async function transcribeVideo(videoPath, videoSha256, config) {
   await ensureDir(config.transcriptCacheDir);
 
-  const cachePath = path.join(config.transcriptCacheDir, `${videoSha256}.json`);
-  const cached = await readJson(cachePath, null);
+  const mode = getAsrMode(config);
+  const cachePath = getTranscriptCachePath(videoSha256, config);
+  const legacyCachePath = getLegacyTranscriptCachePath(videoSha256, config);
+  const cached = (await readJson(cachePath, null)) || (await readJson(legacyCachePath, null));
   if (cached && typeof cached.text === "string") {
     return {
       source: "cache",
@@ -186,17 +348,36 @@ async function transcribeVideo(videoPath, videoSha256, config) {
 
   try {
     await extractAudio(videoPath, wavPath, config);
-    const transcription = await runWhisper(wavPath, config);
+
+    let transcription;
+    let source = mode;
+    if (mode === "whisper-gpu") {
+      transcription = await runWhisper(wavPath, config, true);
+      source = "whisper-gpu";
+    } else if (mode === "whisper-cpu") {
+      transcription = await runWhisper(wavPath, config, false);
+      source = "whisper-cpu";
+    } else if (mode === "api") {
+      transcription = await runThirdPartyAsrApi(wavPath, config);
+      source = "asr-api";
+    } else {
+      const error = new Error(`Unsupported asrMode: ${mode}`);
+      error.code = "ASR_MODE_INVALID";
+      throw error;
+    }
+
     const toCache = {
       text: transcription.text,
       segments: transcription.segments,
+      source,
+      asrMode: mode,
       updatedAt: new Date().toISOString(),
       videoSha256,
     };
     await writeJsonAtomic(cachePath, toCache, 0o600);
 
     return {
-      source: "whisper",
+      source,
       text: transcription.text,
       segments: transcription.segments,
     };
@@ -229,6 +410,7 @@ function validateDurationOrThrow(durationSec) {
 
 module.exports = {
   computeSha256,
+  getTranscriptCachePath,
   getVideoMetadata,
   transcribeVideo,
   validateDurationOrThrow,

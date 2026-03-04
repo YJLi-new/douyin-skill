@@ -14,11 +14,17 @@ const TOKEN_KEY_PATH = path.join(CONFIG_DIR, "token.key");
 const DEFAULT_TRANSCRIPT_CACHE_DIR = path.join(CACHE_DIR, "transcripts");
 const DEFAULT_OUTBOX_DIR = path.join(DATA_DIR, "outbox");
 const DEFAULT_WHISPER_MODEL_PATH = path.join(os.homedir(), ".cache", "whisper.cpp", "ggml-small.bin");
+const DEFAULT_ASR_API_URL = "https://api.openai.com/v1/audio/transcriptions";
+const DEFAULT_ASR_API_MODEL = "whisper-1";
 
 const DEFAULT_CONFIG = {
   defaultPrivateStatus: 0,
   autoConfirm: false,
   scope: "user_info,video.create.bind",
+  asrMode: "api",
+  asrApiUrl: DEFAULT_ASR_API_URL,
+  asrApiModel: DEFAULT_ASR_API_MODEL,
+  asrApiTimeoutMs: 120000,
   ffmpegBin: "ffmpeg",
   ffprobeBin: "ffprobe",
   whisperBin: "whisper-cli",
@@ -41,6 +47,8 @@ module.exports = {
   CONFIG_DIR,
   CONFIG_PATH,
   DATA_DIR,
+  DEFAULT_ASR_API_MODEL,
+  DEFAULT_ASR_API_URL,
   DEFAULT_CONFIG,
   DEFAULT_OUTBOX_DIR,
   DEFAULT_TRANSCRIPT_CACHE_DIR,
